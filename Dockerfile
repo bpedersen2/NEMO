@@ -5,7 +5,7 @@ RUN apt-get install -y less vim
 
 # Intall NEMO (in the current directory) and Gunicorn
 COPY . /nemo/
-RUN pip install /nemo/ gunicorn==20.1.0
+RUN pip install /nemo/ gunicorn==20.1.0 psycopg2
 RUN rm --recursive --force /nemo/
 
 RUN mkdir /nemo
