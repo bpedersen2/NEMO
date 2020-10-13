@@ -1,29 +1,31 @@
-from _ssl import CERT_REQUIRED, PROTOCOL_TLSv1_2
 from base64 import b64decode
 from logging import getLogger
 from urllib.parse import urljoin, urlparse
 
+from _ssl import CERT_REQUIRED, PROTOCOL_TLSv1_2
 from django.conf import settings
-from django.contrib.auth import REDIRECT_FIELD_NAME, authenticate, get_backends, login
+from django.contrib.admin.views.decorators import staff_member_required
+from django.contrib.auth import (REDIRECT_FIELD_NAME, authenticate,
+                                 get_backends, login, logout)
 from django.contrib.auth.backends import ModelBackend
 from django.contrib.auth.middleware import RemoteUserMiddleware
-from django.http import HttpResponse, HttpResponseForbidden, HttpResponseRedirect
+from django.http import (HttpResponse, HttpResponseForbidden,
+                         HttpResponseRedirect)
 from django.shortcuts import redirect, render
 from django.urls import resolve, reverse
 from django.utils.decorators import method_decorator
 from django.utils.module_loading import import_string
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_GET, require_http_methods
-from ldap3 import ANONYMOUS, AUTO_BIND_NO_TLS, Connection, SIMPLE, Server, Tls
+from ldap3 import ANONYMOUS, AUTO_BIND_NO_TLS, SIMPLE, Connection, Server, Tls
 from ldap3.core.exceptions import LDAPBindError, LDAPException
-
 from NEMO.exceptions import InactiveUserError
 from NEMO.middleware import (
     HTTPHeaderAuthenticationMiddleware,
     ImpersonateMiddleware,
     RemoteUserAuthenticationMiddleware,
 )
-from NEMO.models import User
+from NEMO.models import Project, User, UserManager, record_active_state
 from NEMO.views.customization import get_media_file_contents
 
 auth_logger = getLogger(__name__)
@@ -236,6 +238,123 @@ class LDAPAuthenticationBackend(ModelBackend):
                 auth_logger.warning(error)
             return None
 
+class LDAPAuthenticationAutocreateBackend(ModelBackend):
+    """ This class provides LDAP authentication against an LDAP or Active Directory server. """
+
+    @method_decorator(sensitive_post_parameters('password'))
+    def authenticate(self, request, username=None, password=None, **keyword_arguments):
+
+        # Check for remote user in extra arguments if no username and password.
+        # In case of basic authentication
+        if not username or not password:
+            if 'remote_user' in keyword_arguments:
+                credentials = base_64_decode_basic_auth(keyword_arguments['remote_user'])
+                if credentials:
+                    username, password = credentials[0], credentials[1]
+                else:
+                    return None
+            else:
+                return None
+
+
+        is_authenticated_with_ldap = False
+        errors = []
+###
+
+        for server in settings.LDAP_SERVERS:
+            try:
+                port = server.get("port", 636)
+                use_ssl = server.get("use_ssl", True)
+                bind_as_authentication = server.get("bind_as_authentication", True)
+                domain = server.get("domain")
+                t = Tls(validate=CERT_REQUIRED, version=PROTOCOL_TLSv1_2, ca_certs_file=server.get("certificate"))
+                s = Server(server["url"], port=port, use_ssl=use_ssl, tls=t)
+                auto_bind = AUTO_BIND_NO_TLS
+                ldap_bind_user = f"{domain}\\{username}" if domain else username
+                if not bind_as_authentication:
+                    # binding to LDAP first, then search for user
+                    bind_username = server.get("bind_username", None)
+                    bind_username = f"{domain}\\{bind_username}" if domain and bind_username else bind_username
+                    bind_password = server.get("bind_password", None)
+                    authentication = SIMPLE if bind_username and bind_password else ANONYMOUS
+                    c = Connection(
+                        s,
+                        user=bind_username,
+                        password=bind_password,
+                        auto_bind=auto_bind,
+                        authentication=authentication,
+                        raise_exceptions=True,
+                    )
+                    search_username_field = server.get("search_username_field", "uid")
+                    search_attribute = server.get("search_attribute", "cn")
+                    
+                    search_first_name= server.get('search_user_firstname','givenName')
+                    search_last_name = server.get('search_user_lastname','sn')
+                    search_email = server.get('search_user_email','mail')
+
+                    search = c.search(
+                        server["base_dn"], f"({search_username_field}={username})", attributes=[search_attribute, search_first_name, search_last_name, search_email]
+                    )
+                    if not search or search_attribute not in c.response[0].get("attributes", []):
+                        # no results, unbind and continue to next server
+                        c.unbind()
+                        errors.append(
+                            f"User {username} attempted to authenticate with LDAP ({server['url']}), but the search with dn:{server['base_dn']}, username_field:{search_username_field} and attribute:{search_attribute} did not return any results. The user was denied access"
+                        )
+                        continue
+                    else:
+                        # we got results, get the dn that will be used for binding authentication
+                        response = c.response[0]
+                        ldap_bind_user = response["dn"]
+                        c.unbind()
+
+                # let's proceed with binding using the user trying to authenticate
+                c = Connection(
+                    s,
+                    user=ldap_bind_user,
+                    password=password,
+                    auto_bind=auto_bind,
+                    authentication=SIMPLE,
+                    raise_exceptions=True,
+                )
+                c.unbind()
+                # At this point the user successfully authenticated to at least one LDAP server.
+                is_authenticated_with_ldap = True
+                auth_logger.debug(f"User {username} was successfully authenticated with LDAP ({server['url']})")
+                break
+            except LDAPBindError as e:
+                errors.append(
+                    f"User {username} attempted to authenticate with LDAP ({server['url']}), but entered an incorrect password. The user was denied access: {str(e)}"
+                )
+            except LDAPException as e:
+                errors.append(
+                    f"User {username} attempted to authenticate with LDAP ({server['url']}), but an error occurred. The user was denied access: {str(e)}"
+                )
+
+
+        if is_authenticated_with_ldap:
+            try:
+                user = check_user_exists_and_active(self, username)
+                if user:
+                    return user
+            except  User.DoesNotExist:
+                attrs =  response['attributes']
+                um = UserManager()
+                user = um.create_user(username = username,
+                        first_name= attrs[search_first_name][0],
+                    last_name = attrs[search_last_name][0],
+                    email = attrs[search_email][0]
+                    )
+                user.is_active = True
+                projects = Project.objects.filter(pk__in=server.get('user_projects',[]))
+                user.projects.set(projects)
+                user.save()
+            return user
+        else:
+            for error in errors:
+                auth_logger.warning(error)
+            return None
+
 
 @require_http_methods(["GET", "POST"])
 @sensitive_post_parameters("password")
@@ -274,6 +393,12 @@ def login_user(request):
             return HttpResponseRedirect(next_page)
         dictionary["user_name_or_password_incorrect"] = True
         return render(request, "login.html", dictionary)
+
+
+@require_GET
+def logout_user(request):
+    logout(request)
+    return HttpResponseRedirect(reverse('landing'))
 
 
 @require_GET
