@@ -46,7 +46,8 @@
 			"tooltip": "Missed {{ x.reservation_item.name }} reservation for {{ x.user }} billed to project {{ x.project }}, created by {{ x.creator }}",
 		{% endif %}
 		"id": {{ x.id }},
-		"color": "#ff0000",
+		"borderColor": "#ff0000",
+		"backgroundColor": "{% if x.reservation_item.item_type === "TOOL" %}{{ x.reservation_item.tool_calendar_color|default:'#33ad33'|escapejs }}{ %else %}{{ x.reservation_item.area_calendar_color|default:'#33ad33'|escapejs }}"
 		"start": "{{ x.start|date:"c" }}",
 		"end": "{{ x.end|date:"c" }}",
 		"details_url": "{% url 'reservation_details' x.id %}"
