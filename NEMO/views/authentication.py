@@ -46,14 +46,21 @@ def get_pre_authentication_backends():
         "PRE_AUTH_BACKENDS",
         [
             get_full_class_name(RemoteUserAuthenticationBackend),
-            get_full_class_name(NginxKerberosAuthorizationHeaderAuthenticationBackend),
+            get_full_class_name(
+                NginxKerberosAuthorizationHeaderAuthenticationBackend),
         ],
     )
-    return [import_string(pre_auth_backend) for pre_auth_backend in pre_auth_backends]
+    return [
+        import_string(pre_auth_backend)
+        for pre_auth_backend in pre_auth_backends
+    ]
 
 
 def all_auth_backends_are_pre_auth():
-    return all([auth_backend in get_pre_authentication_backends() for auth_backend in get_auth_backends()])
+    return all([
+        auth_backend in get_pre_authentication_backends()
+        for auth_backend in get_auth_backends()
+    ])
 
 
 def check_user_exists_and_active(backend: ModelBackend, username: str) -> User:
@@ -76,7 +83,10 @@ def check_user_exists_and_active(backend: ModelBackend, username: str) -> User:
 
 
 def check_pre_authentication_backends(request):
-    if any([pre_auth_backend in get_auth_backends() for pre_auth_backend in get_pre_authentication_backends()]):
+    if any([
+            pre_auth_backend in get_auth_backends()
+            for pre_auth_backend in get_pre_authentication_backends()
+    ]):
         # check for improper configuration
         if (
             get_full_class_name(RemoteUserMiddleware) not in settings.MIDDLEWARE
@@ -91,7 +101,8 @@ def check_pre_authentication_backends(request):
             return HttpResponseRedirect(reverse("landing"))
         elif all_auth_backends_are_pre_auth():
             # We only have pre_auth backends, and the user isn't authenticated at this point, fail.
-            return HttpResponse("There was an error pre-authenticating the user", status=400)
+            return HttpResponse(
+                "There was an error pre-authenticating the user", status=400)
 
 
 def base_64_decode_basic_auth(remote_user: str):
@@ -242,13 +253,18 @@ class LDAPAuthenticationAutocreateBackend(ModelBackend):
     """ This class provides LDAP authentication against an LDAP or Active Directory server. """
 
     @method_decorator(sensitive_post_parameters('password'))
-    def authenticate(self, request, username=None, password=None, **keyword_arguments):
+    def authenticate(self,
+                     request,
+                     username=None,
+                     password=None,
+                     **keyword_arguments):
 
         # Check for remote user in extra arguments if no username and password.
         # In case of basic authentication
         if not username or not password:
             if 'remote_user' in keyword_arguments:
-                credentials = base_64_decode_basic_auth(keyword_arguments['remote_user'])
+                credentials = base_64_decode_basic_auth(
+                    keyword_arguments['remote_user'])
                 if credentials:
                     username, password = credentials[0], credentials[1]
                 else:
@@ -256,18 +272,20 @@ class LDAPAuthenticationAutocreateBackend(ModelBackend):
             else:
                 return None
 
-
         is_authenticated_with_ldap = False
         errors = []
-###
+        ###
 
         for server in settings.LDAP_SERVERS:
             try:
                 port = server.get("port", 636)
                 use_ssl = server.get("use_ssl", True)
-                bind_as_authentication = server.get("bind_as_authentication", True)
+                bind_as_authentication = server.get("bind_as_authentication",
+                                                    True)
                 domain = server.get("domain")
-                t = Tls(validate=CERT_REQUIRED, version=PROTOCOL_TLSv1_2, ca_certs_file=server.get("certificate"))
+                t = Tls(validate=CERT_REQUIRED,
+                        version=PROTOCOL_TLSv1_2,
+                        ca_certs_file=server.get("certificate"))
                 s = Server(server["url"], port=port, use_ssl=use_ssl, tls=t)
                 auto_bind = AUTO_BIND_NO_TLS
                 ldap_bind_user = f"{domain}\\{username}" if domain else username
@@ -285,17 +303,23 @@ class LDAPAuthenticationAutocreateBackend(ModelBackend):
                         authentication=authentication,
                         raise_exceptions=True,
                     )
-                    search_username_field = server.get("search_username_field", "uid")
+                    search_username_field = server.get("search_username_field",
+                                                       "uid")
                     search_attribute = server.get("search_attribute", "cn")
-                    
-                    search_first_name= server.get('search_user_firstname','givenName')
-                    search_last_name = server.get('search_user_lastname','sn')
-                    search_email = server.get('search_user_email','mail')
 
-                    search = c.search(
-                        server["base_dn"], f"({search_username_field}={username})", attributes=[search_attribute, search_first_name, search_last_name, search_email]
-                    )
-                    if not search or search_attribute not in c.response[0].get("attributes", []):
+                    search_first_name = server.get('search_user_firstname',
+                                                   'givenName')
+                    search_last_name = server.get('search_user_lastname', 'sn')
+                    search_email = server.get('search_user_email', 'mail')
+
+                    search = c.search(server["base_dn"],
+                                      f"({search_username_field}={username})",
+                                      attributes=[
+                                          search_attribute, search_first_name,
+                                          search_last_name, search_email
+                                      ])
+                    if not search or search_attribute not in c.response[0].get(
+                            "attributes", []):
                         # no results, unbind and continue to next server
                         c.unbind()
                         errors.append(
@@ -320,7 +344,9 @@ class LDAPAuthenticationAutocreateBackend(ModelBackend):
                 c.unbind()
                 # At this point the user successfully authenticated to at least one LDAP server.
                 is_authenticated_with_ldap = True
-                auth_logger.debug(f"User {username} was successfully authenticated with LDAP ({server['url']})")
+                auth_logger.debug(
+                    f"User {username} was successfully authenticated with LDAP ({server['url']})"
+                )
                 break
             except LDAPBindError as e:
                 errors.append(
@@ -331,22 +357,21 @@ class LDAPAuthenticationAutocreateBackend(ModelBackend):
                     f"User {username} attempted to authenticate with LDAP ({server['url']}), but an error occurred. The user was denied access: {str(e)}"
                 )
 
-
         if is_authenticated_with_ldap:
             try:
                 user = check_user_exists_and_active(self, username)
                 if user:
                     return user
-            except  User.DoesNotExist:
-                attrs =  response['attributes']
+            except User.DoesNotExist:
+                attrs = response['attributes']
                 um = UserManager()
-                user = um.create_user(username = username,
-                        first_name= attrs[search_first_name][0],
-                    last_name = attrs[search_last_name][0],
-                    email = attrs[search_email][0]
-                    )
+                user = um.create_user(username=username,
+                                      first_name=attrs[search_first_name][0],
+                                      last_name=attrs[search_last_name][0],
+                                      email=attrs[search_email][0])
                 user.is_active = True
-                projects = Project.objects.filter(pk__in=server.get('user_projects',[]))
+                projects = Project.objects.filter(
+                    pk__in=server.get('user_projects', []))
                 user.projects.set(projects)
                 user.save()
             return user
@@ -404,7 +429,8 @@ def logout_user(request):
 @require_GET
 def authorization_failed(request):
     authorization_page = get_media_file_contents("authorization_failed.html")
-    return render(request, "authorization_failed.html", {"authorization_failed": authorization_page})
+    return render(request, "authorization_failed.html",
+                  {"authorization_failed": authorization_page})
 
 
 @require_http_methods(["GET", "POST"])
