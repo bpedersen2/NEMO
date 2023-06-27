@@ -1,5 +1,6 @@
 {% load static %}
 {% load custom_tags_and_filters %}
+{% load socialaccount %}
 <!DOCTYPE html>
 <html lang="en">
     <head>
@@ -23,7 +24,7 @@
 		}
 		else
 			top.location = self.location;
-	
+
         </script>
         <title>{{ site_title }}</title>
         <link rel="shortcut icon" type="image/x-icon" href="{% static 'favicon.ico' %}" />
@@ -35,6 +36,9 @@
             <div class="col-md-8 col-md-offset-2" style="text-align:center; margin-bottom:30px">
                 <h1>Welcome to the {{ site_title }} website</h1>
             </div>
+<!--- begin keycloak login p1-->
+    {% if not hide_password_form %}
+<!-- end p1 -->
             <form method="post" class="form-horizontal" autocomplete="off" id="login_form">
                 {% csrf_token %}
                 <div class="form-group">
@@ -78,16 +82,53 @@
                     <span class="glyphicon icon-info"></span> The username or password was not valid.
                 </div>
             {% endif %}
+<!--- begin keycloak login p2-->
+{% endif %}
+{% get_providers as socialaccount_providers %}
+    {% if socialaccount_providers %}
+    {% for provider in socialaccount_providers %}
+        {% if provider.id == "openid" %}
+            {% for brand in provider.get_brands %}
+            <form method="post" class="form-horizontal"
+                action="{% provider_login_url provider.id openid=brand.openid_url process=process %}">
+                {% csrf_token %}
+                <div class="form-group">
+                    <div class="col-xs-12 col-sm-6 col-sm-offset-3 col-md-4 col-md-offset-4 col-lg-4 col-lg-offset-4">
+                        <p>
+                            <input class="btn btn-lg btn-primary btn-block" type="submit"
+                                value="Log in with {{ provider.name }}({{ brand.name }})">
+                        </p>
+                    </div>
+                </div>
+            </form>
+            {% endfor %}
+        {% else %}
+            <form method="post" class="form-horizontal" action="{% provider_login_url provider.id process=process %}">
+                {% csrf_token %}
+                <div class="form-group">
+                    <div class="col-xs-12 col-sm-6 col-sm-offset-3 col-md-4 col-md-offset-4 col-lg-4 col-lg-offset-4">
+                        <p>
+                            <input class="btn btn-lg btn-primary btn-block" type="submit" value="Log in with {{ provider.name }}">
+                        </p>
+                    </div>
+                </div>
+            </form>
+        {% endif %}
+{% endfor %}
+{% endif %}
+<!-- end keycloak login p2 ->
+
             {% if login_banner %}<div class="alert alert-info">{{ login_banner|safe }}</div>{% endif %}
             {% include 'base/footer.html' %}
         </div>
         <script>
+	<script>
 		if(!navigator.cookieEnabled)
 		{
 			document.getElementById("login_form").style.display = "none";
 			document.getElementById("cookie_error").style.display = "block";
 		}
-	
+
         </script>
     </body>
     <style>
