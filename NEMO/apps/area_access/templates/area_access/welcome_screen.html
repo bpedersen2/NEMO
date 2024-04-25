@@ -1,4 +1,10 @@
 {% extends 'area_access/base.html' %}
 {% block title %}Welcome{% endblock %}
-{% block default_content %}{{ door.welcome_message|safe }}{% endblock %}
+{% block default_content %}
+<div class="col-xs-offset-3 col-xs-6 alert">
+    <label class="btn-extra-large">Badge Number</label><input class="btn-extra-large" name="badge" id="badge">
+    <button class="btn-extra-large alert-success" id="enter_button">Enter</button>
+</div>
+
+{{ door.welcome_message|safe }}{% endblock %}
 {% block action %}enter_area(badge_number, undefined);{% endblock %}

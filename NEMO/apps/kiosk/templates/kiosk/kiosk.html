@@ -37,7 +37,7 @@
         {
             pointer-events: none;
         }
-	
+
         </style>
     </head>
     <body>
@@ -45,6 +45,13 @@
             <div class="container-fluid">
                 <div id="default_content">
                     <h1>Scan your badge to control tools</h1>
+                    <!-- manual input-->
+                    <div class="col-xs-offset-3 col-xs-6 alert">
+                        <label class="btn-extra-large">Badge Number</label><input class="btn-extra-large" name="badge" id="badge">
+                        <button class="btn-extra-large alert-success" id="enter_button">Enter</button>
+                    </div>
+                    <!-- manual input-->
+
                     <div id="occupancy"></div>
                     <div id="usage_title"></div>
                     <div class="tab-pane{% if tools_exist and tab == 'tools' %} active{% endif %} info-tooltip-container"
@@ -124,6 +131,18 @@
 			clear_timeout();
 			load_choices(badge_number);
 		}
+        function on_input_clicked(el) {
+            var badge_in = $("#badge");
+            var val = badge_in.val();
+            badge_in.val('');
+
+            send_badge_number(val);
+            return false;
+
+        }
+        $('#badge').numpad({'readonly': false, 'hidePlusMinusButton': true, 'hideDecimalButton': true})
+
+        $("#enter_button").on('click', on_input_clicked);
 
 		if(occupancy)
 		{
@@ -456,7 +475,7 @@
                 $(item).data('keyboard').close(false);
             })
         }
-	
+
         </script>
     </body>
 </html>

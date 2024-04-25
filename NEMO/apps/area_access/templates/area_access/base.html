@@ -20,6 +20,13 @@
         <link rel="stylesheet" type="text/css" href="{% static "area_access/area_access.css" %}" />
         {# Badge Reader #}
         <script type="text/javascript" src="{% static "badge_reader.js" %}"></script>
+        {# Numpad #}
+        <script type="text/javascript" src="{% static "numpad/custom_numpad.jquery.js" %}"></script>
+        <link rel="stylesheet" type="text/css" href="{% static "numpad/numpad.jquery.css" %}"/>
+
+        {# Virtual Keyboard     #}
+        <script type="text/javascript" src="{% static "virtualkeyboard/jquery.keyboard.min.js" %}"></script>
+       <link rel="stylesheet" type="text/css" href="{% static "virtualkeyboard/keyboard-basic.min.css" %}"/>
         <!--suppress CssUnusedSymbol -->
         <style>
 		.btn-extra-large
@@ -28,7 +35,7 @@
 			margin-bottom: 50px;
 			font-size: 36px;
 		}
-	
+
         </style>
     </head>
     <body>
@@ -85,6 +92,15 @@
 		let error_element = $("#error");
 		let error_interlock_element = $("#interlock_error");
 		let bypass_button = $("#inter_bypass");
+        function on_input_clicked(el) {
+            var badge_in = $("#badge");
+            var val = badge_in.val();
+            badge_in.val('');
+            send_badge_number(val);
+            return false;
+        }
+        $('#badge').numpad({'readonly': false, 'hidePlusMinusButton': true, 'hideDecimalButton': true})
+        $("#enter_button").on('click', on_input_clicked);
 
 		function send_badge_number(badge_number)
 		{
@@ -232,7 +248,7 @@
                 load_complete(response, status, xml_http_request);
             }
         }
-	
+
         </script>
     </body>
 </html>
